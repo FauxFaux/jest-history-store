@@ -1,0 +1,5 @@
+node_modules/
+.idea/
+jest-history-store.sqlite3
+dist/
+package-lock.json
