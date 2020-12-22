@@ -6,6 +6,7 @@ import {
   TestResult,
 } from '@jest/reporters';
 import { create as createStore, Store } from './store';
+import { projectId, relativePath } from './context';
 
 export class ProgressSavingReporter extends BaseReporter {
   private _cache: { [cacheDir: string]: Store } = {};
@@ -41,10 +42,9 @@ export class ProgressSavingReporter extends BaseReporter {
     results: AggregatedResult,
   ): void {
     super.onTestResult(test, testResult, results);
-    test.context.config.rootDir;
     this._getCache(test).addOutcome(
-      test.context.config.name,
-      testResult.testFilePath,
+      projectId(test.context),
+      relativePath(test.context, testResult.testFilePath),
       testResult.perfStats.end,
       testResult.perfStats.runtime,
       testResult.numFailingTests,

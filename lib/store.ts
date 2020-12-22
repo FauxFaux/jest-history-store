@@ -1,8 +1,7 @@
 import * as path from 'path';
-
-import connect = require('better-sqlite3');
 import { Database } from 'better-sqlite3';
 import { Test } from '@jest/reporters';
+import connect = require('better-sqlite3');
 
 // Assumption: generally being quite lax with test identity.
 // A test is identified by its cache dir and its relative path.
@@ -37,32 +36,34 @@ export class Store {
   mostRecentRunFailed(path: string): boolean {
     return this.db
       .prepare(
-        `select failures > 0
+        `select failures > 0 failed
          from test_outcomes
          where test_name = ?
          order by occurred desc
          limit 1`,
       )
-      .get(path)[0];
+      .get(path).failed;
   }
 
-  score(projectId: string, path: string): number {
+  score(projectId: string, path: string): number | undefined {
     return this.db
       .prepare(
-        `select sum(failures) * 10 + sum(duration) / count(1)
+        `select (sum(failures) * 10*1000) + sum(duration) / count(1) as score
          from test_outcomes
          where test_name = ?`,
       )
-      .get(path)[0];
+      .get(path)?.score;
   }
 
   maybeMarkRunStart() {
-    this.runId = this.db
-      .prepare(
-        `insert into runs (started)
-         values (?)`,
-      )
-      .run([Date.now()]).lastInsertRowid as number;
+    if (undefined === this.runId) {
+      this.runId = this.db
+        .prepare(
+          `insert into runs (started)
+           values (?)`,
+        )
+        .run([Date.now()]).lastInsertRowid as number;
+    }
   }
 
   markRunComplete() {
@@ -73,7 +74,7 @@ export class Store {
     this.db
       .prepare(
         `update runs
-         set finished=?
+         set finished = ?
          where id = ?`,
       )
       .run([Date.now(), this.runId]);

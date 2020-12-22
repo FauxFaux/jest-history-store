@@ -1,5 +1,6 @@
 import type { Test, AggregatedResult } from '@jest/reporters';
 import { StoreStore } from './store';
+import { projectId, relativePath } from './context';
 
 export interface JestSequencer {
   sort(tests: Array<Test>): Array<Test>;
@@ -11,7 +12,9 @@ export class ClassicStyleSequencer implements JestSequencer {
   private stores = new StoreStore();
   allFailedTests(tests: Array<Test>): Array<Test> {
     return tests.filter((test) =>
-      this.stores.cache(test).mostRecentRunFailed(test.path),
+      this.stores
+        .cache(test)
+        .mostRecentRunFailed(relativePath(test.context, test.path)),
     );
   }
 
@@ -22,10 +25,13 @@ export class ClassicStyleSequencer implements JestSequencer {
       .map((test) => {
         const score = this.stores
           .cache(test)
-          .score(test.context.config.name, test.path);
+          .score(
+            projectId(test.context),
+            relativePath(test.context, test.path),
+          );
         return [test, score] as const;
       })
-      .sort(([, left], [, right]) => right - left)
+      .sort(([, left], [, right]) => (right ?? Infinity) - (left ?? Infinity))
       .map(([test]) => test);
   }
 }
