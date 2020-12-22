@@ -5,7 +5,10 @@ function slash(path: string): string {
   return path.replace(/\\/g, '/');
 }
 
-export function relativePath(context: Context, testPath: string): string {
+export function relativePath(
+  context: Pick<Context, 'config'>,
+  testPath: string,
+): string {
   let root = slash(context.config.rootDir);
   if (!root.endsWith('/')) {
     root += '/';

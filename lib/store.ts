@@ -29,6 +29,16 @@ export class Store {
       .run([projectId, testName, now, duration, failures]);
   }
 
+  addCoverage(projectId: string, testName: string, coverage: unknown) {
+    this.db
+      .prepare(
+        `insert into test_coverages
+        (project_id, test_name, occurred, coverage)
+        values (?, ?, ?, ?)`,
+      )
+      .run(projectId, testName, Date.now(), coverage);
+  }
+
   constructor(db: Database) {
     this.db = db;
   }
@@ -115,6 +125,16 @@ export function create(cacheDir: string) {
           id       integer primary key,
           started  integer not null,
           finished integer
+      )`);
+
+  db.exec(`
+      create table if not exists test_coverages
+      (
+          id         integer primary key,
+          project_id varchar not null,
+          test_name  varchar not null,
+          occurred   integer not null,
+          coverage   blob not null
       )`);
   return new Store(db);
 }
