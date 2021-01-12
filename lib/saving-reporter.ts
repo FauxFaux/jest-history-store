@@ -1,45 +1,50 @@
-import {
-  AggregatedResult,
-  BaseReporter,
-  Context,
-  Test,
-  TestResult,
-} from '@jest/reporters';
-import { create as createStore, Store } from './store';
-import { projectId, relativePath } from './context';
+import { AggregatedResult, BaseReporter, Context, Test, TestResult, } from '@jest/reporters';
+
+import { compressObj, processStore, RunId, StoreLoader } from './store';
+import { ProjectId, projectId, relativePath } from './context';
 import { shrinkCoverage } from './shrink-coverage';
-import * as zlib from 'zlib';
-import { promisify } from 'util';
-const compress = promisify(zlib.brotliCompress);
 
 export class ProgressSavingReporter extends BaseReporter {
-  private _cache: { [cacheDir: string]: Store } = {};
-  private _promises: Promise<void>[] = [];
+  private readonly store: StoreLoader;
+  private readonly projectRun: Record<ProjectId, RunId | null> = {};
 
-  _getCache(test: Test): Store {
-    const dir = test.context.config.cacheDirectory;
-    if (!this._cache[dir]) {
-      this._cache[dir] = createStore(dir);
-    }
-
-    return this._cache[dir];
+  constructor(/* passed in by jest */) {
+    super();
+    this.store = processStore;
   }
 
   async onRunComplete(
-    _contexts?: Set<Context>,
+    contexts?: Set<Context>,
     _aggregatedResults?: AggregatedResult,
   ): Promise<void> {
-    await super.onRunComplete(_contexts, _aggregatedResults);
-    await Promise.all(this._promises);
-    for (const context of _contexts || []) {
-      this._cache[context.config.cacheDirectory]?.markRunComplete();
+    await super.onRunComplete(contexts, _aggregatedResults);
+    const store = await this.store.load();
+    for (const context of contexts || []) {
+      const pid = projectId(context);
+      const run = this.projectRun[pid];
+      if (null != run) {
+        await store.markRunComplete(run);
+      }
     }
   }
 
-  onTestStart(test?: Test) {
-    if (test) {
-      this._getCache(test).maybeMarkRunStart();
+  async onTestStart(test?: Test): Promise<void> {
+    await super.onTestStart(test);
+    if (!test) {
+      return;
     }
+    const pid = projectId(test.context);
+    if (pid in this.projectRun) {
+      return;
+    }
+    // Races? I think this needs race protection;
+    // Two tests could start in parallel, at least in theory.
+    this.projectRun[pid] = null;
+    const store = await this.store.load();
+    this.projectRun[pid] = await store.createRun(
+      test.context.config.rootDir,
+      pid,
+    );
   }
 
   async onTestResult(
@@ -47,29 +52,29 @@ export class ProgressSavingReporter extends BaseReporter {
     testResult: TestResult,
     results: AggregatedResult,
   ): Promise<void> {
-    super.onTestResult(test, testResult, results);
+    await super.onTestResult(test, testResult, results);
     const pid = projectId(test.context);
     const path = relativePath(test.context, testResult.testFilePath);
-    const store = this._getCache(test);
-    store.addOutcome(
-      pid,
+    const store = await this.store.load();
+    let coverageBlob = null;
+
+    const coverage = testResult.v8Coverage;
+    if (coverage && 0 === testResult.numFailingTests) {
+      coverageBlob = await compressObj(await shrinkCoverage(test.context, coverage));
+    }
+
+    const runId = this.projectRun[pid];
+    if (runId == null) {
+      throw new Error(`illegal state; test result in project which hadn't started: ${pid}`);
+    }
+
+    await store.addOutcome(
+      runId,
       path,
       testResult.perfStats.end,
       testResult.perfStats.runtime,
       testResult.numFailingTests,
+      coverageBlob,
     );
-    const coverage = testResult.v8Coverage;
-    if (coverage && 0 === testResult.numFailingTests) {
-      this._promises.push(
-        (async () => {
-          const shrunk = await shrinkCoverage(test.context, coverage);
-          const buffer = Buffer.from(JSON.stringify(shrunk), 'utf-8');
-          const blob = await compress(buffer, {
-            [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
-          });
-          store.addCoverage(pid, path, blob);
-        })(),
-      );
-    }
   }
 }

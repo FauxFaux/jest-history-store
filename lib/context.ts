@@ -1,5 +1,8 @@
 import { Context } from '@jest/reporters';
 
+// note that this defaults to a hash of the config, which is useless for humans, and not
+export type ProjectId = string;
+
 // close enough
 function slash(path: string): string {
   return path.replace(/\\/g, '/');
@@ -23,6 +26,6 @@ export function relativePath(
   return testPath;
 }
 
-export function projectId(context: Context): string {
+export function projectId(context: Context): ProjectId {
   return context.config.name;
 }
